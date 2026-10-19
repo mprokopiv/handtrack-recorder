@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HandTrack — запис жестів</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Unbounded:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F3F6FA; --surface: #FFFFFF; --ink: #1D2940; --muted: #5A6780; --line: #D6DDE7;
+    --action: #0E7C72; --action-ink: #FFFFFF; --rec: #D1403A; --warn: #9A6200; --guide: #17BFAA;
+    --r-lg: 18px; --r-sm: 10px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #111827; --surface: #19223A; --ink: #E6EBF4; --muted: #9AA6BD; --line: #2B3653;
+      --action: #23A597; --action-ink: #06110F; --rec: #FF6A60; --warn: #F0B03F; --guide: #40DEC8;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); }
+  body {
+    font-family: Manrope, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px; line-height: 1.55;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    max-width: 1280px; margin: 0 auto; padding: 16px 24px 4px;
+  }
+  .brand { font-weight: 700; letter-spacing: .01em; }
+  .progress-wrap { display: flex; align-items: center; gap: 12px; flex: 1; justify-content: flex-end; }
+  .progress { width: min(320px, 40vw); height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+  .progress > div { height: 100%; width: 0; background: var(--action); transition: width .3s; }
+  .progress-label { color: var(--muted); font-size: 14px; white-space: nowrap; }
+  main.layout {
+    display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 24px;
+    max-width: 1280px; margin: 0 auto; padding: 12px 24px 48px; align-items: start;
+  }
+  main.layout.single { grid-template-columns: minmax(0, 720px); justify-content: center; }
+  @media (max-width: 900px) { main.layout { grid-template-columns: 1fr; padding: 12px 14px 40px; } }
+  .stage-col { display: flex; flex-direction: column; gap: 12px; }
+  .prompt { font-family: Unbounded, Manrope, sans-serif; font-weight: 700; font-size: clamp(30px, 5vw, 60px); line-height: 1.05; margin: 0; }
+  .prompt-sub { font-size: clamp(17px, 2vw, 22px); color: var(--muted); margin: 0; }
+  .stage { position: relative; width: 100%; background: #000; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16 / 9; }
+  .stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; transform: scaleX(-1); }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .countdown {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-family: Unbounded, Manrope, sans-serif; font-size: clamp(80px, 16vw, 180px); color: #fff;
+    text-shadow: 0 4px 24px rgba(0,0,0,.5); pointer-events: none;
+  }
+  .rec-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; background: rgba(255,255,255,.18); }
+  .rec-bar > div { height: 100%; width: 0; background: var(--rec); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 22px; }
+  .panel h1, .panel h2 { font-family: Unbounded, Manrope, sans-serif; font-weight: 500; line-height: 1.2; margin: 0 0 12px; }
+  .panel h1 { font-size: 26px; } .panel h2 { font-size: 20px; }
+  .panel p { margin: 0 0 12px; }
+  .panel ul { margin: 0 0 14px; padding-left: 20px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .field { display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px; }
+  .field label { font-weight: 600; }
+  input[type=text], select {
+    font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--line);
+    border-radius: var(--r-sm); padding: 10px 12px; min-height: 44px;
+  }
+  .check { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 14px; }
+  .check input { margin-top: 5px; width: 18px; height: 18px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  button {
+    font: inherit; font-weight: 600; border-radius: var(--r-sm); padding: 11px 18px; min-height: 44px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+  }
+  button.primary { background: var(--action); border-color: var(--action); color: var(--action-ink); }
+  button.danger { color: var(--rec); border-color: var(--rec); background: transparent; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--guide); outline-offset: 2px; }
+  kbd { font: 600 12px/1 Manrope, sans-serif; border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; color: var(--muted); }
+  .meter { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; }
+  .meter-bar { flex: 1; height: 10px; border-radius: 99px; overflow: hidden;
+    background: linear-gradient(90deg, #1f1f1f, #7a7a7a, #f4f4f4); position: relative; }
+  .meter-dot { position: absolute; top: -3px; width: 4px; height: 16px; background: var(--rec); border-radius: 2px; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .thumbs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 0 0 14px; }
+  .thumbs img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); transform: scaleX(-1); }
+  .thumbs .late { outline: 3px solid var(--warn); }
+  table.summary { width: 100%; border-collapse: collapse; margin: 0 0 14px; font-size: 15px; }
+  table.summary td, table.summary th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; }
+  .notice { border-left: 4px solid var(--warn); padding: 8px 12px; background: var(--paper); border-radius: 6px; margin: 0 0 12px; }
+  .hidden { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">HandTrack: запис жестів</div>
+  <div class="progress-wrap">
+    <span class="progress-label" id="progressLabel"></span>
+    <div class="progress" aria-hidden="true"><div id="progressFill"></div></div>
+    <button id="exportNow" class="hidden" type="button">Зберегти архів зараз</button>
+  </div>
+</header>
+
+<main class="layout single" id="layout">
+  <section class="stage-col hidden" id="stageCol">
+    <div id="promptBlock" class="hidden">
+      <p class="prompt" id="promptMain"></p>
+      <p class="prompt-sub" id="promptSub"></p>
+    </div>
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="overlay"></canvas>
+      <div class="countdown hidden" id="countdown"></div>
+      <div class="rec-bar hidden" id="recBar"><div id="recFill"></div></div>
+    </div>
+  </section>
+  <section class="panel" id="panel" aria-live="polite"></section>
+</main>
+
+<script>
+// ======================================================================
+// === PURE START === (no DOM access; unit-tested in Node)
+// ======================================================================
+const CONFIG = {
+  toolVersion: '0.1.0',
+  vocabVersion: '1.0',
+  consentVersion: '1.0',
+  clipMs: 6000,                                   // one clip lasts 6 s
+  captureTimesMs: [1500, 2500, 3500, 4500, 5500], // first second skipped, then 1 frame per second
+  lateThresholdMs: 300,                           // frame captured later than this is flagged
+  jpegQuality: 0.92,
+  idealWidth: 1280,
+  idealHeight: 720,
+  roiFraction: { near: 0.6, far: 0.3 },           // guide square side as a share of min(width, height)
+  // Soft brightness hints (mean luma 0-255). Placeholders: tune after the pilot.
+  brightnessHints: { low: { max: 110 }, bright: { min: 120 } },
+};
+
+const VOCAB = {
+  version: '1.0',
+  gesture: [
+    { code: 'fist',        uk: 'Кулак',            emoji: '✊', hint: 'Усі пальці зігнуті.' },
+    { code: 'open_palm',   uk: 'Відкрита долоня',  emoji: '🖐️', hint: 'Пальці випрямлені й трохи розведені.' },
+    { code: 'one_finger',  uk: 'Один палець',      emoji: '☝️', hint: 'Вказівний угору, решта зігнуті.' },
+    { code: 'two_fingers', uk: 'Два пальці',       emoji: '✌️', hint: 'Вказівний і середній угору, решта зігнуті.' },
+  ],
+  hand: [ { code: 'right', uk: 'Права рука' }, { code: 'left', uk: 'Ліва рука' } ],
+  distance_class: [ { code: 'near', uk: 'близько' }, { code: 'far', uk: 'далеко' } ],
+  lighting_level: [
+    { code: 'normal',  uk: 'Кімнатне світло', setup: 'Звичайне освітлення кімнати: люстра або стельові лампи.' },
+    { code: 'bright',  uk: 'Яскраве світло',  setup: 'Біля вікна вдень або яскрава лампа, спрямована на руку.' },
+    { code: 'low',     uk: 'Слабке світло',   setup: 'Вимкніть основне світло, залиште одну неяскраву лампу або сутінки за вікном.' },
+    { code: 'backlit', uk: 'Контрове світло', setup: 'Джерело світла позаду руки: вікно або лампа за рукою, навпроти камери.' },
+  ],
+  background: [
+    { code: 'plain',     uk: 'однотонний фон',  setup: 'Позаду руки однотонна стіна, аркуш паперу або тканина.' },
+    { code: 'cluttered', uk: 'захаращений фон', setup: 'Позаду руки видно кімнату: полиці, речі, двері.' },
+  ],
+  light_source: [
+    { code: 'artificial', uk: 'Штучне' }, { code: 'mixed', uk: 'Змішане' },
+    { code: 'natural', uk: 'Природне' }, { code: 'other', uk: 'Інше' },
+  ],
+  light_direction: [
+    { code: 'front', uk: 'Спереду' }, { code: 'top', uk: 'Зверху' }, { code: 'bottom', uk: 'Знизу' },
+    { code: 'left', uk: 'Ліворуч' }, { code: 'right', uk: 'Праворуч' }, { code: 'diffuse', uk: 'Розсіяне' },
+    { code: 'other', uk: 'Інше' },
+  ],
+  device_type: [
+    { code: 'laptop', uk: 'Ноутбук' }, { code: 'phone', uk: 'Телефон' },
+    { code: 'tablet', uk: 'Планшет' }, { code: 'other', uk: 'Інше' },
+  ],
+  skip_reason: [
+    { code: 'no_lighting', uk: 'Немає такого освітлення' }, { code: 'no_background', uk: 'Немає такого фону' },
+    { code: 'no_time', uk: 'Немає часу' }, { code: 'other', uk: 'Інше' },
+  ],
+};
+
+function vocabLabel(field, code) {
+  const item = (VOCAB[field] || []).find((x) => x.code === code);
+  return item ? item.uk : code;
+}
+
+// Fixed environment plan: 3 lighting levels x 2 backgrounds (+ optional backlit).
+function buildPlan(includeBacklit) {
+  const combos = [
+    ['normal', 'plain'], ['normal', 'cluttered'],
+    ['bright', 'plain'], ['bright', 'cluttered'],
+    ['low', 'plain'], ['low', 'cluttered'],
+  ];
+  if (includeBacklit) combos.push(['backlit', null]); // background chosen by the participant
+  return combos.map(([lighting, background], i) => ({
+    env_id: 'E' + (i + 1), env_order: i + 1, lighting_level: lighting, background,
+  }));
+}
+
+// Clip order inside one environment: hand -> distance -> gesture (16 clips).
+function clipsForEnv(env) {
+  const clips = [];
+  for (const hand of ['right', 'left']) {
+    for (const distance of ['near', 'far']) {
+      for (const g of VOCAB.gesture) {
+        clips.push({
+          clip_id: `${env.env_id}_${hand === 'right' ? 'R' : 'L'}-${distance}_${g.code}`,
+          env_id: env.env_id, hand, distance_class: distance, gesture: g.code,
+        });
+      }
+    }
+  }
+  return clips;
+}
+
+// Centered square guide box. Returns normalized and pixel coordinates.
+function roiFor(distance, vw, vh) {
+  const side = Math.round(CONFIG.roiFraction[distance] * Math.min(vw, vh));
+  const x = Math.round((vw - side) / 2);
+  const y = Math.round((vh - side) / 2);
+  return { px: { x, y, w: side, h: side }, norm: { x: x / vw, y: y / vh, w: side / vw, h: side / vh } };
+}
+
+function frameIdFor(participantId, sessionId, clip, frameIndex) {
+  return `${participantId}_${sessionId}_${clip.clip_id}_f${frameIndex}`;
+}
+
+const CSV_COLUMNS = [
+  'participant_id', 'session_id', 'frame_id', 'filename', 'env_id', 'env_order', 'lighting_level', 'background',
+  'light_source', 'light_direction', 'clip_id', 'clip_order', 'gesture', 'hand', 'distance_class', 'frame_index',
+  't_ms', 'late_flag', 'roi_x', 'roi_y', 'roi_w', 'roi_h', 'width', 'height', 'brightness_mean',
+  'device_type', 'device_model', 'camera_label', 'user_agent', 'vocab_version', 'tool_version', 'captured_at',
+];
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return '';
+  const s = String(value);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function toCsv(columns, rows) {
+  const lines = [columns.join(',')];
+  for (const r of rows) lines.push(columns.map((c) => csvEscape(r[c])).join(','));
+  return lines.join('\n') + '\n';
+}
+
+// Mean luma (Rec. 601) of RGBA pixel data.
+function meanLuma(rgba) {
+  let sum = 0;
+  const n = rgba.length / 4;
+  for (let i = 0; i < rgba.length; i += 4) sum += 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+  return n ? sum / n : 0;
+}
+
+// --- Minimal ZIP writer (store, no compression: JPEGs are already compressed) ---
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(u8) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+function dosDateTime(d) {
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | Math.floor(d.getSeconds() / 2);
+  const date = ((Math.max(d.getFullYear(), 1980) - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  return { time, date };
+}
+
+// files: [{ name: string, data: Uint8Array, date?: Date }] -> array of Uint8Array parts (Blob-ready)
+function buildZip(files) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const crc = crc32(f.data);
+    const { time, date } = dosDateTime(f.date || new Date());
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(6, 0x0800, true);
+    local.setUint16(8, 0, true); local.setUint16(10, time, true); local.setUint16(12, date, true);
+    local.setUint32(14, crc, true); local.setUint32(18, f.data.length, true); local.setUint32(22, f.data.length, true);
+    local.setUint16(26, name.length, true); local.setUint16(28, 0, true);
+    parts.push(new Uint8Array(local.buffer), name, f.data);
+    const cd = new DataView(new ArrayBuffer(46));
+    cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true);
+    cd.setUint16(8, 0x0800, true); cd.setUint16(10, 0, true); cd.setUint16(12, time, true); cd.setUint16(14, date, true);
+    cd.setUint32(16, crc, true); cd.setUint32(20, f.data.length, true); cd.setUint32(24, f.data.length, true);
+    cd.setUint16(28, name.length, true); cd.setUint16(30, 0, true); cd.setUint16(32, 0, true);
+    cd.setUint16(34, 0, true); cd.setUint16(36, 0, true); cd.setUint32(38, 0, true); cd.setUint32(42, offset, true);
+    central.push(new Uint8Array(cd.buffer), name);
+    offset += 30 + name.length + f.data.length;
+  }
+  const cdSize = central.reduce((s, p) => s + p.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(4, 0, true); end.setUint16(6, 0, true);
+  end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true); end.setUint16(20, 0, true);
+  return parts.concat(central, [new Uint8Array(end.buffer)]);
+}
+// ======================================================================
+// === PURE END ===
+// ======================================================================
+</script>
+
+<script>
+// ======================================================================
+// Application (DOM, camera, IndexedDB)
+// ======================================================================
+const el = (id) => document.getElementById(id);
+const app = { state: null, stream: null, db: null, meterTimer: null, recording: false, pendingFrames: null };
+
+// ---------- IndexedDB ----------
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('handtrack-recorder', 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('frames')) db.createObjectStore('frames', { keyPath: 'frame_id' });
+      if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function idb(store, mode, fn) {
+  return new Promise((resolve, reject) => {
+    const tx = app.db.transaction(store, mode);
+    const result = fn(tx.objectStore(store));
+    tx.oncomplete = () => resolve(result && 'result' in result ? result.result : undefined);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
+  });
+}
+const saveState = () => idb('kv', 'readwrite', (s) => s.put(app.state, 'state'));
+const loadState = () => idb('kv', 'readonly', (s) => s.get('state'));
+const putFrame = (frame) => idb('frames', 'readwrite', (s) => s.put(frame));
+const getAllFrames = () => idb('frames', 'readonly', (s) => s.getAll());
+const clearAll = async () => { await idb('frames', 'readwrite', (s) => s.clear()); await idb('kv', 'readwrite', (s) => s.clear()); };
+
+// ---------- helpers ----------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function options(field, selected, withEmpty = true) {
+  const head = withEmpty ? '<option value="">Оберіть…</option>' : '';
+  return head + VOCAB[field].map((o) => `<option value="${o.code}"${o.code === selected ? ' selected' : ''}>${escapeHtml(o.uk)}</option>`).join('');
+}
+function totalClips() { return app.state ? app.state.plan.length * 16 : 0; }
+function doneClips() { return app.state ? Object.keys(app.state.accepted).length : 0; }
+function updateProgress() {
+  const total = totalClips();
+  const done = doneClips();
+  el('progressLabel').textContent = total ? `Кліпів: ${done} з ${total}` : '';
+  el('progressFill').style.width = total ? `${(100 * done) / total}%` : '0';
+  el('exportNow').classList.toggle('hidden', done === 0);
+}
+function setLayout(withStage) {
+  el('layout').classList.toggle('single', !withStage);
+  el('stageCol').classList.toggle('hidden', !withStage);
+}
+function setPrompt(main, sub) {
+  el('promptBlock').classList.toggle('hidden', !main);
+  el('promptMain').textContent = main || '';
+  el('promptSub').textContent = sub || '';
+}
+function panel(html) { el('panel').innerHTML = html; }
+function currentEnv() { return app.state.plan[app.state.env_index]; }
+function currentClip() { return clipsForEnv(currentEnv())[app.state.clip_index]; }
+function envTitle(env, meta) {
+  const bg = env.background || (meta && meta.background);
+  return `${vocabLabel('lighting_level', env.lighting_level)}${bg ? ', ' + vocabLabel('background', bg) : ''}`;
+}
+
+// ---------- camera ----------
+async function startCamera(deviceId) {
+  if (app.stream) app.stream.getTracks().forEach((t) => t.stop());
+  const constraints = { audio: false, video: { width: { ideal: CONFIG.idealWidth }, height: { ideal: CONFIG.idealHeight } } };
+  if (deviceId) constraints.video.deviceId = { exact: deviceId };
+  app.stream = await navigator.mediaDevices.getUserMedia(constraints);
+  const video = el('video');
+  video.srcObject = app.stream;
+  await new Promise((r) => (video.readyState >= 2 ? r() : (video.onloadeddata = () => r())));
+  el('stage').style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+  const track = app.stream.getVideoTracks()[0];
+  app.state.camera = { label: track.label || '', width: video.videoWidth, height: video.videoHeight };
+  drawOverlay('near', 'guide');
+}
+function drawOverlay(distance, mode) {
+  const video = el('video'); const canvas = el('overlay');
+  const vw = video.videoWidth || 1280; const vh = video.videoHeight || 720;
+  canvas.width = vw; canvas.height = vh;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, vw, vh);
+  if (!distance) return;
+  const { px } = roiFor(distance, vw, vh);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(0, 0, vw, vh);
+  ctx.clearRect(px.x, px.y, px.w, px.h);
+  const style = getComputedStyle(document.documentElement);
+  ctx.strokeStyle = mode === 'rec' ? style.getPropertyValue('--rec').trim() : style.getPropertyValue('--guide').trim();
+  ctx.lineWidth = Math.max(4, Math.round(vw / 240));
+  ctx.strokeRect(px.x, px.y, px.w, px.h);
+}
+function sampleBrightness() {
+  const video = el('video');
+  if (!video.videoWidth) return null;
+  const c = sampleBrightness.canvas || (sampleBrightness.canvas = document.createElement('canvas'));
+  c.width = 64; c.height = 36;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(video, 0, 0, 64, 36);
+  return meanLuma(ctx.getImageData(0, 0, 64, 36).data);
+}
+function startMeter(level) {
+  stopMeter();
+  const tick = () => {
+    const b = sampleBrightness();
+    const dot = document.getElementById('meterDot'); const val = document.getElementById('meterValue');
+    const hint = document.getElementById('meterHint');
+    if (b === null || !dot) return;
+    dot.style.left = `calc(${(b / 255) * 100}% - 2px)`;
+    val.textContent = Math.round(b);
+    let msg = '';
+    const h = level && CONFIG.brightnessHints[level];
+    if (h && h.max !== undefined && b > h.max) msg = 'Схоже, тут досить світло для слабкого освітлення.';
+    if (h && h.min !== undefined && b < h.min) msg = 'Схоже, тут не дуже яскраво.';
+    if (hint) hint.textContent = msg;
+  };
+  tick();
+  app.meterTimer = setInterval(tick, 500);
+}
+function stopMeter() { if (app.meterTimer) clearInterval(app.meterTimer); app.meterTimer = null; }
+const meterHtml = `<div class="meter"><span class="muted">Яскравість</span><div class="meter-bar"><div class="meter-dot" id="meterDot"></div></div><span id="meterValue" class="muted">–</span></div><p id="meterHint" class="warn"></p>`;
+
+function grabFrame() {
+  const video = el('video');
+  const vw = video.videoWidth; const vh = video.videoHeight;
+  const canvas = document.createElement('canvas');
+  canvas.width = vw; canvas.height = vh;
+  canvas.getContext('2d').drawImage(video, 0, 0, vw, vh); // saved unmirrored
+  const brightness = sampleBrightness();
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve({ blob, width: vw, height: vh, brightness }), 'image/jpeg', CONFIG.jpegQuality));
+}
+
+// ---------- screens ----------
+async function renderWelcome() {
+  setLayout(false); setPrompt(''); updateProgress();
+  const s = app.state;
+  const resume = s && !s.finished_at
+    ? `<div class="notice">Є незавершений запис: ${escapeHtml(s.participant_id)}, ${doneClips()} з ${totalClips()} кліпів.</div>
+       <div class="buttons"><button class="primary" id="resume" type="button">Продовжити запис</button>
+       <button class="danger" id="restart" type="button">Почати заново</button></div>`
+    : `<div class="buttons"><button class="primary" id="start" type="button">Почати</button></div>`;
+  panel(`
+    <h1>Запис жестів для магістерської роботи</h1>
+    <p>Ви покажете чотири прості жести перед камерою в кількох умовах освітлення й фону. Сторінка сама зробить знімки й підпише їх. Це займе близько 30 хвилин.</p>
+    <p>Підготуйте:</p>
+    <ul>
+      <li>камеру ноутбука або телефона;</li>
+      <li>кімнату, де можна змінювати світло: вмикати й вимикати лампу, підходити до вікна;</li>
+      <li>однотонну стіну, аркуш паперу або тканину для однотонного фону.</li>
+    </ul>
+    <p class="muted">Знімки зберігаються лише на цьому пристрої, доки ви самі не завантажите архів і не надішлете його.</p>
+    ${resume}`);
+  if (el('start')) el('start').onclick = renderConsent;
+  if (el('resume')) el('resume').onclick = renderCamera;
+  if (el('restart')) el('restart').onclick = async () => {
+    if (!confirm('Видалити незавершений запис з цього пристрою й почати заново?')) return;
+    await clearAll(); app.state = null; renderWelcome();
+  };
+}
+
+function renderConsent() {
+  setLayout(false);
+  panel(`
+    <h1>Згода на участь</h1>
+    <p>Я погоджуюсь, що знімки моєї руки будуть використані в магістерській роботі для навчання й перевірки моделей розпізнавання жестів.</p>
+    <ul>
+      <li>Знімається лише рука, обличчя має бути поза кадром.</li>
+      <li>Знімки не передаються автоматично: архів я надсилаю сам(а).</li>
+      <li>Я можу попросити видалити мої знімки в будь-який момент.</li>
+      <li>Знімки можуть бути опубліковані окремо від роботи лише з моєї окремої згоди.</li>
+    </ul>
+    <label class="check"><input type="checkbox" id="agree"> <span>Я прочитав(ла) і погоджуюсь.</span></label>
+    <div class="buttons"><button class="primary" id="next" type="button" disabled>Погоджуюсь і продовжую</button></div>`);
+  el('agree').onchange = (e) => { el('next').disabled = !e.target.checked; };
+  el('next').onclick = () => {
+    app.state = {
+      tool_version: CONFIG.toolVersion, vocab_version: VOCAB.version,
+      consent: { given: true, at: new Date().toISOString(), text_version: CONFIG.consentVersion },
+      user_agent: navigator.userAgent, started_at: new Date().toISOString(), finished_at: null,
+      env_meta: {}, env_index: 0, clip_index: 0, accepted: {}, rows: {},
+    };
+    renderParticipant();
+  };
+}
+
+function renderParticipant() {
+  setLayout(false);
+  panel(`
+    <h1>Про вас і пристрій</h1>
+    <div class="field"><label for="pid">Код учасника</label>
+      <input type="text" id="pid" placeholder="P01" autocomplete="off" maxlength="4">
+      <span class="muted">Код вам надасть Мар'яна.</span></div>
+    <div class="field"><label for="sid">Сеанс</label>
+      <select id="sid"><option value="S1">S1, перший запис</option><option value="S2">S2, повторний запис в інший день</option><option value="S3">S3</option></select></div>
+    <div class="field"><label for="dtype">Пристрій</label><select id="dtype">${options('device_type')}</select></div>
+    <div class="field"><label for="dmodel">Модель пристрою</label>
+      <input type="text" id="dmodel" placeholder="Наприклад, Lenovo IdeaPad 5" maxlength="80"></div>
+    <label class="check"><input type="checkbox" id="backlit"> <span>Додати середовище з контровим світлом (світло позаду руки). Це ще 16 кліпів, приблизно 5 хвилин.</span></label>
+    <p class="warn" id="formError"></p>
+    <div class="buttons"><button class="primary" id="next" type="button">Далі</button></div>`);
+  el('next').onclick = () => {
+    const pid = el('pid').value.trim().toUpperCase();
+    if (!/^P\d{2,3}$/.test(pid)) { el('formError').textContent = 'Введіть код у форматі P01.'; return; }
+    if (!el('dtype').value) { el('formError').textContent = 'Оберіть тип пристрою.'; return; }
+    Object.assign(app.state, {
+      participant_id: pid, session_id: el('sid').value, device_type: el('dtype').value,
+      device_model: el('dmodel').value.trim(), include_backlit: el('backlit').checked,
+      plan: buildPlan(el('backlit').checked),
+    });
+    saveState().then(renderCamera);
+  };
+}
+
+async function renderCamera() {
+  setLayout(true); setPrompt('Перевірка камери', 'Рука має вміщатися в рамку, обличчя поза кадром.');
+  updateProgress();
+  panel(`
+    <h2>Перевірте камеру</h2>
+    <div class="field"><label for="cam">Камера</label><select id="cam"><option>Запуск камери…</option></select></div>
+    <p>Поставте камеру на рівні грудей. Покладіть руку в рамку на зображенні.</p>
+    ${meterHtml}
+    <p class="warn" id="camError"></p>
+    <div class="buttons"><button class="primary" id="next" type="button" disabled>Камера працює, далі</button></div>`);
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    el('camError').textContent = 'Браузер не дає доступу до камери на цій сторінці. Відкрийте її за адресою, що починається з https://, у Chrome або Edge.';
+    return;
+  }
+  try {
+    try { await startCamera(app.state.camera_device_id); } catch (e) { app.state.camera_device_id = null; await startCamera(null); }
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    const currentId = app.stream.getVideoTracks()[0].getSettings().deviceId;
+    el('cam').innerHTML = devices.map((d, i) => `<option value="${d.deviceId}"${d.deviceId === currentId ? ' selected' : ''}>${escapeHtml(d.label || 'Камера ' + (i + 1))}</option>`).join('');
+    el('cam').onchange = async (e) => { app.state.camera_device_id = e.target.value; await startCamera(e.target.value); };
+    startMeter(null);
+    el('next').disabled = false;
+    el('next').onclick = () => { stopMeter(); saveState().then(nextStep); };
+  } catch (err) {
+    el('camError').textContent = 'Немає доступу до камери. Дозвольте доступ у налаштуваннях браузера й оновіть сторінку.';
+  }
+}
+
+function nextStep() {
+  const s = app.state;
+  if (s.env_index >= s.plan.length) return renderFinish();
+  const env = currentEnv();
+  if (!s.env_meta[env.env_id] || s.clip_index === 0) return renderEnv();
+  return renderClip();
+}
+
+function renderEnv() {
+  const s = app.state; const env = currentEnv();
+  const meta = s.env_meta[env.env_id] || {};
+  setLayout(true); setPrompt(envTitle(env, meta), `Середовище ${env.env_order} з ${s.plan.length}`);
+  drawOverlay('near', 'guide');
+  const lighting = VOCAB.lighting_level.find((x) => x.code === env.lighting_level);
+  const bgItem = env.background ? VOCAB.background.find((x) => x.code === env.background) : null;
+  panel(`
+    <h2>Налаштуйте умови</h2>
+    <ul><li>${escapeHtml(lighting.setup)}</li>${bgItem ? `<li>${escapeHtml(bgItem.setup)}</li>` : ''}</ul>
+    ${env.background ? '' : `<div class="field"><label for="bg">Фон</label><select id="bg">${options('background', meta.background)}</select></div>`}
+    <div class="field"><label for="lsrc">Джерело світла</label><select id="lsrc">${options('light_source', meta.light_source)}</select></div>
+    <div class="field"><label for="ldir">Звідки падає світло на руку</label><select id="ldir">${options('light_direction', meta.light_direction)}</select></div>
+    ${meterHtml}
+    <p class="warn" id="formError"></p>
+    <div class="buttons">
+      <button class="primary" id="go" type="button">Почати записи</button>
+      <button id="skip" type="button">Пропустити це середовище</button>
+    </div>
+    <div id="skipBox" class="hidden">
+      <div class="field" style="margin-top:14px"><label for="reason">Чому пропускаєте</label><select id="reason">${options('skip_reason')}</select></div>
+      <div class="buttons"><button class="danger" id="skipConfirm" type="button">Підтвердити пропуск</button></div>
+    </div>`);
+  startMeter(env.lighting_level);
+  el('go').onclick = async () => {
+    const bg = env.background || (el('bg') && el('bg').value);
+    if (!bg || !el('lsrc').value || !el('ldir').value) { el('formError').textContent = 'Заповніть усі поля.'; return; }
+    s.env_meta[env.env_id] = { background: bg, light_source: el('lsrc').value, light_direction: el('ldir').value,
+      skipped: false, skip_reason: null, started_at: new Date().toISOString() };
+    stopMeter(); await saveState(); renderClip();
+  };
+  el('skip').onclick = () => el('skipBox').classList.remove('hidden');
+  el('skipConfirm').onclick = async () => {
+    if (!el('reason').value) return;
+    s.env_meta[env.env_id] = { skipped: true, skip_reason: el('reason').value, background: env.background };
+    s.env_index += 1; s.clip_index = 0;
+    stopMeter(); await saveState(); nextStep();
+  };
+}
+
+function renderClip(message) {
+  const s = app.state; const env = currentEnv(); const clip = currentClip();
+  const g = VOCAB.gesture.find((x) => x.code === clip.gesture);
+  setLayout(true);
+  setPrompt(`${g.emoji} ${g.uk}`, `${vocabLabel('hand', clip.hand)}, ${vocabLabel('distance_class', clip.distance_class)}`);
+  drawOverlay(clip.distance_class, 'guide');
+  const distanceHint = clip.distance_class === 'near'
+    ? 'Рука займає майже всю рамку.'
+    : 'Відсуньте руку від камери, щоб вона була невеликою всередині рамки.';
+  panel(`
+    ${message ? `<div class="notice">${escapeHtml(message)}</div>` : ''}
+    <h2>Кліп ${s.clip_index + 1} з 16</h2>
+    <p class="muted">${escapeHtml(envTitle(env, s.env_meta[env.env_id]))}</p>
+    <p><strong>${escapeHtml(g.hint)}</strong> ${escapeHtml(distanceHint)}</p>
+    <p>Тримайте жест 6 секунд. Повільно повертайте кисть і трохи змінюйте її положення, але не виходьте за рамку.</p>
+    <div class="buttons">
+      <button class="primary" id="rec" type="button">Почати запис <kbd>Пробіл</kbd></button>
+      <button id="back" type="button">До налаштувань середовища</button>
+    </div>`);
+  el('rec').onclick = runClip;
+  el('back').onclick = renderEnv;
+}
+
+async function runClip() {
+  if (app.recording) return;
+  app.recording = true;
+  const clip = currentClip();
+  el('rec').disabled = true; el('back').disabled = true;
+  let aborted = false;
+  const onHide = () => { if (document.hidden) aborted = true; };
+  document.addEventListener('visibilitychange', onHide);
+  const cd = el('countdown');
+  cd.classList.remove('hidden');
+  for (const n of [3, 2, 1]) { cd.textContent = n; await sleep(1000); if (aborted) break; }
+  cd.classList.add('hidden');
+  const captured = [];
+  if (!aborted) {
+    drawOverlay(clip.distance_class, 'rec');
+    el('recBar').classList.remove('hidden');
+    const t0 = performance.now();
+    await new Promise((resolve) => {
+      const tick = () => {
+        const t = performance.now() - t0;
+        el('recFill').style.width = `${Math.min(100, (100 * t) / CONFIG.clipMs)}%`;
+        while (captured.length < CONFIG.captureTimesMs.length && t >= CONFIG.captureTimesMs[captured.length]) {
+          const target = CONFIG.captureTimesMs[captured.length];
+          captured.push({ t_ms: Math.round(t), late: t - target > CONFIG.lateThresholdMs, roi: roiFor(clip.distance_class, el('video').videoWidth, el('video').videoHeight).norm, captured_at: new Date().toISOString(), promise: grabFrame() });
+        }
+        if (aborted || t >= CONFIG.clipMs) return resolve();
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    el('recBar').classList.add('hidden'); el('recFill').style.width = '0';
+  }
+  document.removeEventListener('visibilitychange', onHide);
+  app.recording = false;
+  if (aborted || captured.length < CONFIG.captureTimesMs.length) {
+    return renderClip('Запис перервано: сторінка була неактивна. Запишіть кліп ще раз.');
+  }
+  const frames = await Promise.all(captured.map(async (c) => ({ ...c, ...(await c.promise) })));
+  renderReview(frames);
+}
+
+function renderReview(frames) {
+  const clip = currentClip();
+  drawOverlay(clip.distance_class, 'guide');
+  const urls = frames.map((f) => URL.createObjectURL(f.blob));
+  const anyLate = frames.some((f) => f.late);
+  panel(`
+    <h2>Перевірте кадри</h2>
+    <div class="thumbs">${urls.map((u, i) => `<img src="${u}" alt="Кадр ${i + 1}" class="${frames[i].late ? 'late' : ''}">`).join('')}</div>
+    ${anyLate ? '<p class="warn">Деякі кадри зроблено із затримкою. Краще перезняти.</p>' : ''}
+    <p>Жест добре видно, а рука в рамці?</p>
+    <div class="buttons">
+      <button class="primary" id="ok" type="button">Прийняти й далі <kbd>Enter</kbd></button>
+      <button id="again" type="button">Перезняти <kbd>R</kbd></button>
+    </div>`);
+  const cleanup = () => urls.forEach((u) => URL.revokeObjectURL(u));
+  el('again').onclick = () => { cleanup(); renderClip(); };
+  el('ok').onclick = async () => {
+    el('ok').disabled = true;
+    await acceptClip(clip, frames);
+    cleanup();
+    nextStep();
+  };
+}
+
+async function acceptClip(clip, frames) {
+  const s = app.state; const env = currentEnv(); const meta = s.env_meta[env.env_id];
+  const ids = [];
+  for (let i = 0; i < frames.length; i++) {
+    const f = frames[i];
+    const frameId = frameIdFor(s.participant_id, s.session_id, clip, i + 1);
+    await putFrame({ frame_id: frameId, blob: f.blob });
+    s.rows[frameId] = {
+      participant_id: s.participant_id, session_id: s.session_id, frame_id: frameId, filename: `frames/${frameId}.jpg`,
+      env_id: env.env_id, env_order: env.env_order, lighting_level: env.lighting_level, background: meta.background,
+      light_source: meta.light_source, light_direction: meta.light_direction,
+      clip_id: clip.clip_id, clip_order: s.env_index * 16 + s.clip_index + 1, gesture: clip.gesture, hand: clip.hand,
+      distance_class: clip.distance_class, frame_index: i + 1, t_ms: f.t_ms, late_flag: f.late ? 1 : 0,
+      roi_x: f.roi.x.toFixed(4), roi_y: f.roi.y.toFixed(4), roi_w: f.roi.w.toFixed(4), roi_h: f.roi.h.toFixed(4),
+      width: f.width, height: f.height, brightness_mean: f.brightness === null ? '' : f.brightness.toFixed(1),
+      device_type: s.device_type, device_model: s.device_model, camera_label: (s.camera && s.camera.label) || '',
+      user_agent: s.user_agent, vocab_version: VOCAB.version, tool_version: CONFIG.toolVersion, captured_at: f.captured_at,
+    };
+    ids.push(frameId);
+  }
+  s.accepted[clip.clip_id] = ids;
+  s.clip_index += 1;
+  if (s.clip_index >= 16) { s.env_meta[env.env_id].finished_at = new Date().toISOString(); s.env_index += 1; s.clip_index = 0; }
+  await saveState();
+  updateProgress();
+}
+
+function renderFinish() {
+  const s = app.state;
+  if (!s.finished_at) { s.finished_at = new Date().toISOString(); saveState(); }
+  if (app.stream) app.stream.getTracks().forEach((t) => t.stop());
+  setLayout(false); setPrompt(''); updateProgress();
+  const rows = s.plan.map((env) => {
+    const meta = s.env_meta[env.env_id] || {};
+    const n = Object.values(s.rows).filter((r) => r.env_id === env.env_id).length;
+    return `<tr><td>${escapeHtml(envTitle(env, meta))}</td><td>${meta.skipped ? 'пропущено: ' + escapeHtml(vocabLabel('skip_reason', meta.skip_reason)) : n + ' кадрів'}</td></tr>`;
+  }).join('');
+  panel(`
+    <h1>Готово, дякую!</h1>
+    <table class="summary"><tr><th>Середовище</th><th>Результат</th></tr>${rows}</table>
+    <p>Завантажте архів і надішліть його Мар'яні <strong>як файл</strong> (у месенджері оберіть «Файл» або «Документ», а не «Фото»), щоб він не стискався.</p>
+    <div class="buttons">
+      <button class="primary" id="dl" type="button">Завантажити архів</button>
+      <button class="danger" id="wipe" type="button">Видалити записи з цього пристрою</button>
+    </div>
+    <p class="muted" id="dlNote"></p>`);
+  el('dl').onclick = () => exportArchive(true);
+  el('wipe').onclick = async () => {
+    if (!confirm('Ви вже завантажили й надіслали архів? Записи буде видалено з цього пристрою.')) return;
+    await clearAll(); app.state = null; renderWelcome();
+  };
+}
+
+async function exportArchive(final) {
+  const s = app.state;
+  const btn = final ? el('dl') : el('exportNow');
+  if (btn) { btn.disabled = true; btn.textContent = 'Готую архів…'; }
+  try {
+    const frames = await getAllFrames();
+    const byId = new Map(frames.map((f) => [f.frame_id, f.blob]));
+    const rows = Object.values(s.rows).sort((a, b) => a.clip_order - b.clip_order || a.frame_index - b.frame_index);
+    const enc = new TextEncoder();
+    const manifest = {
+      tool_version: CONFIG.toolVersion, vocab_version: VOCAB.version, partial: !final || !s.finished_at,
+      participant_id: s.participant_id, session_id: s.session_id, consent: s.consent,
+      device: { type: s.device_type, model: s.device_model, user_agent: s.user_agent },
+      camera: s.camera, config: { clip_ms: CONFIG.clipMs, capture_times_ms: CONFIG.captureTimesMs, roi_fraction: CONFIG.roiFraction },
+      plan: s.plan, environments: s.env_meta,
+      counts: { clips_accepted: Object.keys(s.accepted).length, frames: rows.length },
+      started_at: s.started_at, finished_at: s.finished_at, exported_at: new Date().toISOString(),
+    };
+    const files = [
+      { name: 'manifest.json', data: enc.encode(JSON.stringify(manifest, null, 2)) },
+      { name: 'frames.csv', data: enc.encode(toCsv(CSV_COLUMNS, rows)) },
+    ];
+    for (const r of rows) {
+      const blob = byId.get(r.frame_id);
+      if (blob) files.push({ name: r.filename, data: new Uint8Array(await blob.arrayBuffer()) });
+    }
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+    const name = `${s.participant_id}_${s.session_id}_${stamp}${manifest.partial ? '_partial' : ''}.zip`;
+    const url = URL.createObjectURL(new Blob(buildZip(files), { type: 'application/zip' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    if (final && el('dlNote')) el('dlNote').textContent = `Файл ${name} збережено в завантаженнях.`;
+  } catch (err) {
+    alert('Не вдалося створити архів. Спробуйте ще раз або напишіть Мар\'яні.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = final ? 'Завантажити архів' : 'Зберегти архів зараз'; }
+  }
+}
+
+// ---------- keyboard ----------
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName) || '';
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(tag)) return;
+  if (e.code === 'Space' && el('rec') && !el('rec').disabled) { e.preventDefault(); el('rec').click(); }
+  else if (e.key === 'Enter' && el('ok') && !el('ok').disabled) { e.preventDefault(); el('ok').click(); }
+  else if ((e.key === 'r' || e.key === 'R' || e.key === 'к' || e.key === 'К') && el('again')) { e.preventDefault(); el('again').click(); }
+});
+el('exportNow').onclick = () => exportArchive(false);
+
+// ---------- boot ----------
+(async function boot() {
+  try {
+    app.db = await openDb();
+    app.state = (await loadState()) || null;
+  } catch (err) {
+    panel('<h1>Сторінка не може зберігати записи</h1><p>Браузер забороняє локальне сховище (можливо, приватний режим). Відкрийте сторінку у звичайному вікні Chrome або Edge.</p>');
+    return;
+  }
+  if (app.state && app.state.finished_at) return renderFinish();
+  renderWelcome();
+})();
+</script>
+</body>
+</html>
